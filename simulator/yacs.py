@@ -136,11 +136,6 @@ class Computador(object):
         self.cores = cores
         self.memoriaRam = memoriaRam
 
-    def ejecutar_procesos(self, procesos):
-        for proceso in procesos:
-            # Implementar la lógica para asignar procesos a los núcleos disponibles...
-            pass
-
 
 def crear_cores(env: simpy.Environment, num_cores: int, memoriaL1: int, memoriaL2: int, tiempo_acceso_L1: int, tiempo_acceso_L2: int,):
     cores = []
@@ -168,13 +163,11 @@ def crear_procesos(cantidad: int):
     return procesos
 
 
-def simularComputador(env: simpy.Environment, cores: List[Core], memoriaRam: Ram, procesos: int):
-    pass
+def simulador(env: simpy.Environment, computador: Computador, procesos: int):
+    yield env.timeout(1)
 
 
 def main():
-
-    env = simpy.Environment()
     # Crea una instancia de la clase Parametros
     parametros = Parametros()
 
@@ -186,6 +179,8 @@ def main():
     print(f"El valor de L1 es: {L1}")
     print(f"El valor de L2 es: {L2}")
 
+    env = simpy.Environment()
+
     memoriaRamComputador = Ram(tiempo_acceso=200)
 
     coresComputador = crear_cores(env=env, num_cores=cores, memoriaL1=L1,
@@ -193,7 +188,13 @@ def main():
 
     procesosComputador = crear_procesos(cantidad=procesos)
 
- # computador = Computador(env=env, cores=cores, memoriaRam=memoriaRam)
+    computador = Computador(env=env, cores=coresComputador,
+                            memoriaRam=memoriaRamComputador)
+
+    env.process(simulador(env=env, computador=computador,
+                          procesos=procesosComputador))
+
+    env.run(until=480)
 
     # for i in procesosComputador:
     #     print(i.ID, i.num_datos, i.datos,
