@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-
 import string
 import simpy
 import numpy
@@ -179,12 +178,19 @@ def simuladorComputador(env: simpy.Environment, computador: Computador, procesos
     yield env.timeout(1)
 
 
+# Cinta 
+# La ram necesita los valores
+
 def main():
     # Crea una instancia de la clase Parametros
     parametros = Parametros()
 
     # Obtiene los parámetros
     procesos, cores, L1, L2 = parametros.obtener_parametros()
+
+    # Testeto de los parámetros
+    # L1 = 5
+    # L2 = 10
 
     print(f"El valor de Procesos es: {procesos}")
     print(f"El valor de Cores es: {cores}")
@@ -195,6 +201,7 @@ def main():
 
     memoriaRamComputador = Ram(tiempo_acceso=200)
 
+    
     coresComputador = crear_cores(env=env, num_cores=cores, memoriaL1=L1,
                                   memoriaL2=L2, tiempo_acceso_L1=4, tiempo_acceso_L2=10)
 
@@ -208,9 +215,9 @@ def main():
 
     env.run(until=480)
 
-    # for i in procesosComputador:
-    #     print(i.ID, i.num_datos, i.datos,
-    #           i.datos_leidos, i.tespera, i.tfinalizacion)
+    for i in procesosComputador:
+        print(i.ID, i.num_datos, i.datos,
+              i.datos_leidos, i.tespera, i.tfinalizacion)
 
     # for i in cores:
     #     print(i.ID, i.memoriaL1.memoria, i.memoriaL2.memoria,
