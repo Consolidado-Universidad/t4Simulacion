@@ -8,6 +8,12 @@ import argparse
 from typing import List
 
 
+class Debug(object):
+    @classmethod
+    def log(self, env: simpy.Environment, msg: str):
+        print(f"{env.now:5.4f}:\t{msg}")
+
+
 class Parametros(object):
     def __init__(self):
         self.procesos = None
@@ -107,13 +113,19 @@ class Ram(object):
 
 
 class Core(object):
-    def __init__(self, env: simpy.Environment, ID: int, memoriaL1: MemoriaCache, memoriaL2: MemoriaCache):
+    def __init__(self, env: simpy.Environment, idCore: int, memoriaL1: MemoriaCache, memoriaL2: MemoriaCache):
         self.env = env
-        self.ID = ID
+        self.idCore = idCore
         self.ocupado = False
         self.tiempo_utilizacion = 0
         self.memoriaL1 = memoriaL1
         self.memoriaL2 = memoriaL2
+
+    def cargarDatosL1(self, proceso: Proceso):
+        pass
+
+    def cicloCore(self, idCore: int, proceso: Proceso):
+        pass
 
     def asignar_proceso(self, proceso, tiempo_servicio):
         self.ocupado = True
@@ -147,7 +159,7 @@ def crear_cores(env: simpy.Environment, num_cores: int, memoriaL1: int, memoriaL
             env=env, memoria=memoriaL2,
             tiempo_acceso=tiempo_acceso_L2)
         core = Core(env=env,
-                    ID=i,
+                    idCore=i,
                     memoriaL1=coreMemoriaL1,
                     memoriaL2=coreMemoriaL2)
         cores.append(core)
@@ -163,7 +175,7 @@ def crear_procesos(cantidad: int):
     return procesos
 
 
-def simulador(env: simpy.Environment, computador: Computador, procesos: int):
+def simuladorComputador(env: simpy.Environment, computador: Computador, procesos: int):
     yield env.timeout(1)
 
 
@@ -191,8 +203,8 @@ def main():
     computador = Computador(env=env, cores=coresComputador,
                             memoriaRam=memoriaRamComputador)
 
-    env.process(simulador(env=env, computador=computador,
-                          procesos=procesosComputador))
+    env.process(simuladorComputador(env=env, computador=computador,
+                                    procesos=procesosComputador))
 
     env.run(until=480)
 
