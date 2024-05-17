@@ -4,6 +4,8 @@ import simpy
 
 
 autosEnFila = []
+
+
 class Debug(object):
     @classmethod
     def log(self, env: simpy.Environment, msg: str):
@@ -11,25 +13,25 @@ class Debug(object):
 
 
 class Estacionamiento(object):
-    def __init__(self, 
-                 env:simpy.Environment, 
+    def __init__(self,
+                 env: simpy.Environment,
                  capacidad: int,
                  totalAutos: int,
-                 tMedioLlegada:float):
+                 tMedioLlegada: float):
         self.env = env
         self.capacidad = capacidad
 
         self.totalAutos = totalAutos
         self.tMedioLlegada = tMedioLlegada
 
-        self.espaciosLibres = simpy.Container(self.env, capacity=capacidad, 
-                                            init=capacidad)
+        self.espaciosLibres = simpy.Container(self.env, capacity=capacidad,
+                                              init=capacidad)
 
         procesoSim = self.env.process(self.run())
         procesoSnitch = self.env.process(self.snitch())
 
-    def autos(self, id:int):
-        
+    def autos(self, id: int):
+
         # Llega al estacionamiento
         Debug.log(self.env, f"auto {id} llega")
 
@@ -58,9 +60,11 @@ class Estacionamiento(object):
             autosEnFila.append(dato)
             yield self.env.timeout(delay=1)
 
+
 def main():
     env = simpy.Environment()
-    estacionamiento = Estacionamiento(env, capacidad=2, totalAutos=10, tMedioLlegada=3)
+    estacionamiento = Estacionamiento(
+        env, capacidad=2, totalAutos=10, tMedioLlegada=3)
     env.run(until=600)
 
     print(autosEnFila)
