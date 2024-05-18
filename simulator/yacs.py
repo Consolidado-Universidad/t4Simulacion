@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 
+# Importar librerias
 import string
 import simpy
 import numpy
 import argparse
 from typing import List
+# from typing import Dict
+import time
+
+thoughput = 0
+tiempo_servicio_promedio = 0
+tiempo_utilizacion_core = 0
 
 
 class Debug(object):
@@ -66,12 +73,13 @@ class Parametros(object):
         return self.procesos, self.cores, self.L1, self.L2
 
 
+# Estructura de datos de lo que es un proceso
 class Proceso(object):
-    def __init__(self, ID: int, num_datos: int):
+    def __init__(self, idProceso: int, num_datos: int):
         if not (1 <= num_datos <= 25):
             raise ValueError("El número de datos debe estar entre 1 y 25")
 
-        self.ID = ID
+        self.idProceso = idProceso
         self.tespera = None  # Inicializado a None, se calculará durante la simulación
         self.tfinalizacion = None  # Inicializado a None, se calculará durante la simulación
         self.num_datos = num_datos
@@ -80,152 +88,152 @@ class Proceso(object):
             letra: False for letra in string.ascii_lowercase[:num_datos]}
         self.datos_leidos = 0  # Contador de datos leídos
 
-    def leer_dato(self, dato):
-        if dato in self.datos and not self.datos[dato]:
-            self.datos[dato] = True
-            self.datos_leidos += 1
-        elif dato not in self.datos:
-            raise ValueError(
-                f"El dato {dato} no es requerido por este proceso.")
-        elif self.datos[dato]:
-            raise ValueError(f"El dato {dato} ya ha sido leído.")
-
-    def todos_datos_leidos(self):
-        return self.datos_leidos == self.num_datos
-
-    def actualizar_tiempos(self, tespera, tfinalizacion):
-        self.tespera = tespera
-        self.tfinalizacion = tfinalizacion
-
-
-class MemoriaCache(object):
-    def __init__(self, env: simpy.Environment, memoria: int, tiempo_acceso: int):
-        self.env = env
-        self.memoria = simpy.Resource(env, capacity=memoria)
-        self.tiempo_acceso = tiempo_acceso
-        self.datos = []
-
-
-class Ram(object):
-    def __init__(self, tiempo_acceso):
-        self.tiempo_acceso = tiempo_acceso
-
 
 class Core(object):
-    def __init__(self, env: simpy.Environment, idCore: int, memoriaL1: MemoriaCache, memoriaL2: MemoriaCache):
-        self.env = env
+    def __init__(self, idCore: int, L1: int, L2: int):
         self.idCore = idCore
+        self.L1 = L1
+        self.L2 = L2
+        self.datosL1 = []
+        self.datosL2 = []
+        self.tL1 = 4
+        self.tL2 = 10
         self.ocupado = False
-        self.tiempo_utilizacion = 0
-        self.memoriaL1 = memoriaL1
-        self.memoriaL2 = memoriaL2
-
-    def cargarDatosL1(self, proceso: Proceso):
-        pass
-
-    def cicloCore(self, idCore: int, proceso: Proceso):
-        pass
-
-    def asignar_proceso(self, proceso, tiempo_servicio):
-        self.ocupado = True
-        yield self.env.timeout(tiempo_servicio)
-        self.tiempo_utilizacion += tiempo_servicio
-        self.ocupado = False
-
-    def liberar(self):
-        self.ocupado = False
-        self.tiempo_utilizacion = 0
 
 
 class Computador(object):
     def __init__(self,
                  env: simpy.Environment,
-                 cores: List[Core],
-                 memoriaRam: Ram
+                 numCores: int,
+                 L1: int,
+                 L2: int,
+                 totalprocesos: int
                  ):
         self.env = env
-        self.cores = cores
-        self.memoriaRam = memoriaRam
+        self.totalprocesos = totalprocesos
+
+        self.tRam = 200
+
+        self.coresLibres = simpy.Container(
+            self.env, capacity=numCores, init=numCores)
+
+        self.cores = [Core(id, L1, L2) for id in range(numCores)]
+
+        self.env.process(self.run())
+        # procesoSnitch = self.env.process(self.snitch())
+
+    def procesos(self, proceso: Proceso):
+
+        # Proceso llega al computador
+        Debug.log(self.env, f"Proceso {proceso.idProceso} llega")
+
+        # Revisa que exista un core libre
+        yield self.coresLibres.get(1)
+
+        # Asignar un core al proceso
+        core = self.asignar_core()
+        Debug.log(self.env, f"Proceso {
+                  proceso.idProceso} asignado al core {core.idCore}")
+
+        for dato in proceso.datos:
+            tAcceso = self.leer_dato(core, dato)
+            Debug.log(self.env, f"tiempo de acceso: {
+                      tAcceso},   dato: {dato},")
+            yield self.env.timeout(tAcceso)
+
+        # Liberar el core
+        self.liberar_core(core)
+        yield self.coresLibres.put(1)
+        Debug.log(self.env, f"Proceso {
+                  proceso.idProceso} liberó el core {core.idCore}")
+
+    def run(self):
+        for i in range(1, self.totalprocesos):
+            tLlegada = numpy.random.exponential(scale=1)
+            yield self.env.timeout(delay=tLlegada)
+
+            # Crear un proceso
+            num_datos = numpy.random.randint(low=1, high=25)
+            proceso = Proceso(idProceso=i, num_datos=num_datos)
+
+            # Desarrollar el proceso
+            self.env.process(self.procesos(proceso=proceso))
+
+    def leer_dato(self, core, dato):
+        # Dato encontrado en L1
+        if dato in core.datosL1:
+            return core.tL1
+        # Dato encontrado en L2
+        elif dato in core.datosL2:
+            core.datosL1.append(dato)
+            if len(core.datosL1) > core.L1:
+                core.datosL1.pop(0)
+            return core.tL2 + core.tL1
+        # Buscar en la RAM
+        else:
+            core.datosL2.append(dato)
+            if len(core.datosL2) > core.L2:
+                core.datosL2.pop(0)
+            core.datosL1.append(dato)
+            if len(core.datosL1) > core.L1:
+                core.datosL1.pop(0)
+            return self.tRam + core.tL2 + core.tL1
+
+    def asignar_core(self):
+        for core in self.cores:
+            if not core.ocupado:
+                core.ocupado = True
+                return core
+        raise RuntimeError(
+            "No se pudo encontrar un core libre después de haberlo reservado")
+
+    def liberar_core(self, core):
+        core.ocupado = False
 
 
-def crear_cores(env: simpy.Environment, num_cores: int, memoriaL1: int, memoriaL2: int, tiempo_acceso_L1: int, tiempo_acceso_L2: int,):
-    cores = []
-    for i in range(num_cores):
-        coreMemoriaL1 = MemoriaCache(
-            env=env, memoria=memoriaL1,
-            tiempo_acceso=tiempo_acceso_L1)
-        coreMemoriaL2 = MemoriaCache(
-            env=env, memoria=memoriaL2,
-            tiempo_acceso=tiempo_acceso_L2)
-        core = Core(env=env,
-                    idCore=i,
-                    memoriaL1=coreMemoriaL1,
-                    memoriaL2=coreMemoriaL2)
-        cores.append(core)
-    return cores
+# def cicloProceso(env: simpy.Environment, proceso: Proceso, computador: Computador):
+#     # Proceso llega al computador
+#     tInicio = env.now
+
+#     # Asignar un core al proceso
+#     req = computador.recursoCores.request()
+
+#     core = computador.cores[computador.cores.index(
+#         computador.core_mapping[req])]
+
+#     print(f"Proceso {proceso.idProceso} asignado al core {core.idCore}")
+
+#     yield req
+
+#     # Leer los datos del proceso
+
+#     # Proceso termina
+
+#     # Liberar el core
 
 
-def crear_procesos(cantidad: int):
-    procesos = []
-    for i in range(cantidad):
-        num_datos = numpy.random.randint(low=1, high=25)
-        proceso = Proceso(ID=i, num_datos=num_datos)
-        procesos.append(proceso)
-    return procesos
-
-
-def simuladorComputador(env: simpy.Environment, computador: Computador, procesos: int):
-    yield env.timeout(1)
-
-
-# Cinta 
-# La ram necesita los valores
-
+# Cinta
 def main():
     # Crea una instancia de la clase Parametros
     parametros = Parametros()
 
     # Obtiene los parámetros
-    procesos, cores, L1, L2 = parametros.obtener_parametros()
-
-    # Testeto de los parámetros
-    # L1 = 5
-    # L2 = 10
-
-    print(f"El valor de Procesos es: {procesos}")
-    print(f"El valor de Cores es: {cores}")
-    print(f"El valor de L1 es: {L1}")
-    print(f"El valor de L2 es: {L2}")
+    procesos, numCores, L1, L2 = parametros.obtener_parametros()
 
     env = simpy.Environment()
 
-    memoriaRamComputador = Ram(tiempo_acceso=200)
-
-    
-    coresComputador = crear_cores(env=env, num_cores=cores, memoriaL1=L1,
-                                  memoriaL2=L2, tiempo_acceso_L1=4, tiempo_acceso_L2=10)
-
-    procesosComputador = crear_procesos(cantidad=procesos)
-
-    computador = Computador(env=env, cores=coresComputador,
-                            memoriaRam=memoriaRamComputador)
-
-    env.process(simuladorComputador(env=env, computador=computador,
-                                    procesos=procesosComputador))
-
-    env.run(until=480)
-
-    for i in procesosComputador:
-        print(i.ID, i.num_datos, i.datos,
-              i.datos_leidos, i.tespera, i.tfinalizacion)
-
-    # for i in cores:
-    #     print(i.ID, i.memoriaL1.memoria, i.memoriaL2.memoria,
-    #           i.memoriaL1.tiempo_acceso, i.memoriaL2.tiempo_acceso)
-
-    # computador = Computador(env=env, num_cores=cores)
+    computador = Computador(env=env,
+                            numCores=numCores,
+                            L1=L1,
+                            L2=L2,
+                            totalprocesos=procesos)
 
     env.run()
+
+    # print(f"Thoughput: {thoughput}")
+    # print(f"Tiempo de servicio promedio de cada tarea: {
+    #       tiempo_servicio_promedio}")
+    # print(f"Tiempo de utilizacion de cada core: {tiempo_utilizacion_core}")
 
 
 if __name__ == "__main__":
