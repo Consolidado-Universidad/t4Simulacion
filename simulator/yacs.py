@@ -3,21 +3,27 @@
 # Importar librerias
 import string
 import simpy
-import numpy
+import numpy as np
 import argparse
-from typing import List
-# from typing import Dict
-import time
+import matplotlib.pyplot as plt
 
-thoughput = 0
-tiempo_servicio_promedio = 0
-tiempo_utilizacion_core = 0
+# Tiempos de servicio
+tespera = []
+tservicio = []
+tfinalizacion = []
 
 
 class Debug(object):
+    enabled = False
+
     @classmethod
-    def log(self, env: simpy.Environment, msg: str):
-        print(f"{env.now:5.4f}:\t{msg}")
+    def enable(cls):
+        cls.enabled = True
+
+    @classmethod
+    def log(cls, env: simpy.Environment, msg: str):
+        if cls.enabled:
+            print(f"{env.now:5.4f}:\t{msg}")
 
 
 class Parametros(object):
@@ -26,12 +32,11 @@ class Parametros(object):
         self.cores = None
         self.L1 = None
         self.L2 = None
+        self.elog = False
         self._parsear_argumentos()
 
     def _parsear_argumentos(self):
         parser = argparse.ArgumentParser(description="Descripción del script.")
-
-        # Argumentos obligatorios (posicionales)
         parser.add_argument("--procesos", type=self.validar_no_negativo,
                             required=True, help="Procesos a simular.")
         parser.add_argument("--cores", type=self.validar_cores,
@@ -40,17 +45,17 @@ class Parametros(object):
                             required=True, help="L1 tamaño de la memoria caché.")
         parser.add_argument("--L2", type=self.validar_no_negativo,
                             required=True, help="L2 tamaño de la memoria caché.")
+        parser.add_argument("--elog", action='store_true',
+                            help="Habilitar logging de depuración.")
 
-        # Parser de los argumentos
         args = parser.parse_args()
 
-        # Asigna los argumentos a las variables de la clase
         self.procesos = args.procesos
         self.cores = args.cores
         self.L1 = args.L1
         self.L2 = args.L2
+        self.elog = args.elog
 
-    # Validadores de los argumentos
     def validar_cores(self, value):
         cores = int(value)
         if cores == 1 or (cores % 2 == 0 and 1 <= cores <= 64):
@@ -59,7 +64,6 @@ class Parametros(object):
             raise argparse.ArgumentTypeError(
                 f"{value} no es un valor válido para --cores. Debe ser 1 o un número par hasta 64.")
 
-    # Vaidar no negatividad
     def validar_no_negativo(self, value):
         ivalue = int(value)
         if ivalue <= 0:
@@ -67,26 +71,20 @@ class Parametros(object):
                 f"{value} no puede ser negativo o igual a 0")
         return ivalue
 
-    # Obtener los parámetros
     def obtener_parametros(self):
-        # Devuelve los parámetros como una tupla
-        return self.procesos, self.cores, self.L1, self.L2
+        if self.L1 >= self.L2:
+            raise argparse.ArgumentTypeError("L1 debe ser menor que L2")
+        return self.procesos, self.cores, self.L1, self.L2, self.elog
 
 
-# Estructura de datos de lo que es un proceso
 class Proceso(object):
     def __init__(self, idProceso: int, num_datos: int):
         if not (1 <= num_datos <= 25):
             raise ValueError("El número de datos debe estar entre 1 y 25")
-
         self.idProceso = idProceso
-        self.tespera = None  # Inicializado a None, se calculará durante la simulación
-        self.tfinalizacion = None  # Inicializado a None, se calculará durante la simulación
         self.num_datos = num_datos
-        # Diccionario para seguir el estado de lectura de los datos
         self.datos = {
             letra: False for letra in string.ascii_lowercase[:num_datos]}
-        self.datos_leidos = 0  # Contador de datos leídos
 
 
 class Core(object):
@@ -99,77 +97,76 @@ class Core(object):
         self.tL1 = 4
         self.tL2 = 10
         self.ocupado = False
+        self.tUtilizado = 0
+        self.procesos_resueltos = 0
+        self.cL1 = 0
+        self.cL2 = 0
+        self.cRam = 0
 
 
 class Computador(object):
-    def __init__(self,
-                 env: simpy.Environment,
-                 numCores: int,
-                 L1: int,
-                 L2: int,
-                 totalprocesos: int
-                 ):
+    def __init__(self, env: simpy.Environment, numCores: int, L1: int, L2: int, totalprocesos: int):
         self.env = env
         self.totalprocesos = totalprocesos
-
+        self.pCompletados = 0
         self.tRam = 200
-
         self.coresLibres = simpy.Container(
             self.env, capacity=numCores, init=numCores)
-
         self.cores = [Core(id, L1, L2) for id in range(numCores)]
-
         self.env.process(self.run())
-        # procesoSnitch = self.env.process(self.snitch())
 
     def procesos(self, proceso: Proceso):
-
-        # Proceso llega al computador
-        Debug.log(self.env, f"Proceso {proceso.idProceso} llega")
-
-        # Revisa que exista un core libre
+        Debug.log(self.env, f"Proceso {proceso.idProceso}: llega")
+        itEspera = self.env.now
         yield self.coresLibres.get(1)
 
-        # Asignar un core al proceso
         core = self.asignar_core()
-        Debug.log(self.env, f"Proceso {
-                  proceso.idProceso} asignado al core {core.idCore}")
+        Debug.log(self.env, f"Proceso {proceso.idProceso}: Asignado al core {
+                  core.idCore}, con {proceso.num_datos} datos.")
+        ftEspera = self.env.now
+        tespera.append(ftEspera - itEspera)
+        itServicio = self.env.now
 
+        itCore = self.env.now
         for dato in proceso.datos:
             tAcceso = self.leer_dato(core, dato)
-            Debug.log(self.env, f"tiempo de acceso: {
-                      tAcceso},   dato: {dato},")
+            Debug.log(self.env, f"Proceso {proceso.idProceso}: Ocupando core: {
+                      core.idCore} Leyendo dato: {dato}, tiempo de acceso: {tAcceso}.")
             yield self.env.timeout(tAcceso)
+        ftCore = self.env.now
+        core.tUtilizado += (ftCore - itCore)
+        core.procesos_resueltos += 1
 
-        # Liberar el core
         self.liberar_core(core)
         yield self.coresLibres.put(1)
         Debug.log(self.env, f"Proceso {
                   proceso.idProceso} liberó el core {core.idCore}")
 
+        ftServicio = self.env.now
+        tservicio.append(ftServicio - itServicio)
+        tfinalizacion.append(ftServicio - itEspera)
+
+        self.pCompletados += 1
+
     def run(self):
-        for i in range(1, self.totalprocesos):
-            tLlegada = numpy.random.exponential(scale=1)
+        for i in range(1, self.totalprocesos + 1):
+            tLlegada = np.random.exponential(scale=1)
             yield self.env.timeout(delay=tLlegada)
 
-            # Crear un proceso
-            num_datos = numpy.random.randint(low=1, high=25)
+            num_datos = np.random.randint(low=1, high=25)
             proceso = Proceso(idProceso=i, num_datos=num_datos)
-
-            # Desarrollar el proceso
             self.env.process(self.procesos(proceso=proceso))
 
     def leer_dato(self, core, dato):
-        # Dato encontrado en L1
         if dato in core.datosL1:
+            core.cL1 += 1
             return core.tL1
-        # Dato encontrado en L2
         elif dato in core.datosL2:
             core.datosL1.append(dato)
             if len(core.datosL1) > core.L1:
                 core.datosL1.pop(0)
+            core.cL2 += 1
             return core.tL2 + core.tL1
-        # Buscar en la RAM
         else:
             core.datosL2.append(dato)
             if len(core.datosL2) > core.L2:
@@ -177,6 +174,7 @@ class Computador(object):
             core.datosL1.append(dato)
             if len(core.datosL1) > core.L1:
                 core.datosL1.pop(0)
+            core.cRam += 1
             return self.tRam + core.tL2 + core.tL1
 
     def asignar_core(self):
@@ -191,49 +189,33 @@ class Computador(object):
         core.ocupado = False
 
 
-# def cicloProceso(env: simpy.Environment, proceso: Proceso, computador: Computador):
-#     # Proceso llega al computador
-#     tInicio = env.now
-
-#     # Asignar un core al proceso
-#     req = computador.recursoCores.request()
-
-#     core = computador.cores[computador.cores.index(
-#         computador.core_mapping[req])]
-
-#     print(f"Proceso {proceso.idProceso} asignado al core {core.idCore}")
-
-#     yield req
-
-#     # Leer los datos del proceso
-
-#     # Proceso termina
-
-#     # Liberar el core
-
-
-# Cinta
 def main():
-    # Crea una instancia de la clase Parametros
     parametros = Parametros()
+    procesos, numCores, L1, L2, elog = parametros.obtener_parametros()
 
-    # Obtiene los parámetros
-    procesos, numCores, L1, L2 = parametros.obtener_parametros()
+    if elog:
+        Debug.enable()
 
     env = simpy.Environment()
-
-    computador = Computador(env=env,
-                            numCores=numCores,
-                            L1=L1,
-                            L2=L2,
-                            totalprocesos=procesos)
+    computador = Computador(env=env, numCores=numCores,
+                            L1=L1, L2=L2, totalprocesos=procesos)
 
     env.run()
 
-    # print(f"Thoughput: {thoughput}")
-    # print(f"Tiempo de servicio promedio de cada tarea: {
-    #       tiempo_servicio_promedio}")
-    # print(f"Tiempo de utilizacion de cada core: {tiempo_utilizacion_core}")
+    tsimulacion = env.now
+    throughput = computador.pCompletados / tsimulacion
+
+    print(f"Throughput: {throughput} procesos/segundo")
+    print(f"Tiempo de espera promedio de cada tarea: {np.mean(tespera)}")
+    print(f"Tiempo de servicio promedio de cada tarea: {np.mean(tservicio)}")
+
+    for i in range(numCores):
+        core = computador.cores[i]
+        print(f"Core {i}: Tiempo de uso: {core.tUtilizado}, Procesos resueltos: {
+              core.procesos_resueltos}, Accesos a L1: {core.cL1}, Accesos a L2: {core.cL2}, Accesos a RAM: {core.cRam}")
+
+    print(f"Tiempo de finalización promedio de cada tarea: {
+          np.mean(tfinalizacion)}")
 
 
 if __name__ == "__main__":

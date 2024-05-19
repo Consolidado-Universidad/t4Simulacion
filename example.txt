@@ -1,3 +1,3 @@
 python yacs.py --procesos 500 --cores 8 --L1 6 --L2 18
 
-python yacs.py --procesos 500 --cores 8 --L1 5 --L2 10
+python yacs.py --procesos 500 --cores 8 --L1 5 --L2 10 --elog
