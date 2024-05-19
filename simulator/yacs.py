@@ -102,6 +102,7 @@ class Core(object):
         self.cL1 = 0
         self.cL2 = 0
         self.cRam = 0
+        self.tCore = []
 
 
 class Computador(object):
@@ -136,6 +137,7 @@ class Computador(object):
         ftCore = self.env.now
         core.tUtilizado += (ftCore - itCore)
         core.procesos_resueltos += 1
+        core.tCore.append(ftCore - itCore)
 
         self.liberar_core(core)
         yield self.coresLibres.put(1)
@@ -211,7 +213,7 @@ def main():
 
     for i in range(numCores):
         core = computador.cores[i]
-        print(f"Core {i}: Tiempo de uso: {core.tUtilizado}, Procesos resueltos: {
+        print(f"Core {i}: Tiempo de uso: {core.tUtilizado}, Promedio tiempo de uso: {np.mean(core.tCore)} Procesos resueltos: {
               core.procesos_resueltos}, Accesos a L1: {core.cL1}, Accesos a L2: {core.cL2}, Accesos a RAM: {core.cRam}")
 
     print(f"Tiempo de finalización promedio de cada tarea: {
