@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 
-# Importar librerias
+# Importar librerías necesarias
 import string
 import simpy
 import numpy as np
 import argparse
-import matplotlib.pyplot as plt
 
-# Tiempos de servicio
+# Listas para almacenar tiempos de espera, servicio y finalización
 tespera = []
 tservicio = []
 tfinalizacion = []
 
 
+# Clase para la depuración
 class Debug(object):
     enabled = False
 
@@ -26,6 +26,7 @@ class Debug(object):
             print(f"{env.now:5.4f}:\t{msg}")
 
 
+# Clase para manejar los parámetros de entrada
 class Parametros(object):
     def __init__(self):
         self.procesos = None
@@ -35,6 +36,7 @@ class Parametros(object):
         self.elog = False
         self._parsear_argumentos()
 
+    # Método para parsear los argumentos de la línea de comandos
     def _parsear_argumentos(self):
         parser = argparse.ArgumentParser(description="Descripción del script.")
         parser.add_argument("--procesos", type=self.validar_no_negativo,
@@ -56,6 +58,7 @@ class Parametros(object):
         self.L2 = args.L2
         self.elog = args.elog
 
+    # Validar que el número de cores sea correcto
     def validar_cores(self, value):
         cores = int(value)
         if cores == 1 or (cores % 2 == 0 and 1 <= cores <= 64):
@@ -64,6 +67,7 @@ class Parametros(object):
             raise argparse.ArgumentTypeError(
                 f"{value} no es un valor válido para --cores. Debe ser 1 o un número par hasta 64.")
 
+    # Validar que un valor no sea negativo
     def validar_no_negativo(self, value):
         ivalue = int(value)
         if ivalue <= 0:
@@ -71,10 +75,13 @@ class Parametros(object):
                 f"{value} no puede ser negativo o igual a 0")
         return ivalue
 
+     # Obtener los parámetros y validar que L1 sea menor que L2
     def obtener_parametros(self):
         if self.L1 >= self.L2:
             raise argparse.ArgumentTypeError("L1 debe ser menor que L2")
         return self.procesos, self.cores, self.L1, self.L2, self.elog
+
+# Clase para representar un proceso
 
 
 class Proceso(object):
@@ -87,6 +94,7 @@ class Proceso(object):
             letra: False for letra in string.ascii_lowercase[:num_datos]}
 
 
+# Clase para representar un core
 class Core(object):
     def __init__(self, idCore: int, L1: int, L2: int):
         self.idCore = idCore
@@ -105,6 +113,7 @@ class Core(object):
         self.tCore = []
 
 
+# Clase para representar el computador
 class Computador(object):
     def __init__(self, env: simpy.Environment, numCores: int, L1: int, L2: int, totalprocesos: int):
         self.env = env
@@ -116,6 +125,7 @@ class Computador(object):
         self.cores = [Core(id, L1, L2) for id in range(numCores)]
         self.env.process(self.run())
 
+    # Método para simular los procesos
     def procesos(self, proceso: Proceso):
         Debug.log(self.env, f"Proceso {proceso.idProceso}: llega")
         itEspera = self.env.now
@@ -150,6 +160,7 @@ class Computador(object):
 
         self.pCompletados += 1
 
+    # Método para generar los procesos
     def run(self):
         for i in range(1, self.totalprocesos + 1):
             tLlegada = np.random.exponential(scale=1)
@@ -159,6 +170,7 @@ class Computador(object):
             proceso = Proceso(idProceso=i, num_datos=num_datos)
             self.env.process(self.procesos(proceso=proceso))
 
+     # Método para leer datos del core
     def leer_dato(self, core, dato):
         if dato in core.datosL1:
             core.cL1 += 1
@@ -179,6 +191,7 @@ class Computador(object):
             core.cRam += 1
             return self.tRam + core.tL2 + core.tL1
 
+    # Método para asignar un core libre
     def asignar_core(self):
         for core in self.cores:
             if not core.ocupado:
@@ -187,8 +200,11 @@ class Computador(object):
         raise RuntimeError(
             "No se pudo encontrar un core libre después de haberlo reservado")
 
+    # Método para liberar un core
     def liberar_core(self, core):
         core.ocupado = False
+
+# Función principal del script
 
 
 def main():
