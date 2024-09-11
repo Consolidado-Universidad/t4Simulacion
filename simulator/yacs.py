@@ -11,8 +11,9 @@ tespera = []
 tservicio = []
 tfinalizacion = []
 
-
 # Clase para la depuración
+
+
 class Debug(object):
     enabled = False
 
@@ -25,8 +26,9 @@ class Debug(object):
         if cls.enabled:
             print(f"{env.now:5.4f}:\t{msg}")
 
-
 # Clase para manejar los parámetros de entrada
+
+
 class Parametros(object):
     def __init__(self):
         self.procesos = None
@@ -75,7 +77,7 @@ class Parametros(object):
                 f"{value} no puede ser negativo o igual a 0")
         return ivalue
 
-     # Obtener los parámetros y validar que L1 sea menor que L2
+    # Obtener los parámetros y validar que L1 sea menor que L2
     def obtener_parametros(self):
         if self.L1 >= self.L2:
             raise argparse.ArgumentTypeError("L1 debe ser menor que L2")
@@ -93,8 +95,9 @@ class Proceso(object):
         self.datos = {
             letra: False for letra in string.ascii_lowercase[:num_datos]}
 
-
 # Clase para representar un core
+
+
 class Core(object):
     def __init__(self, idCore: int, L1: int, L2: int):
         self.idCore = idCore
@@ -112,16 +115,16 @@ class Core(object):
         self.cRam = 0
         self.tCore = []
 
-
 # Clase para representar el computador
+
+
 class Computador(object):
     def __init__(self, env: simpy.Environment, numCores: int, L1: int, L2: int, totalprocesos: int):
         self.env = env
         self.totalprocesos = totalprocesos
         self.pCompletados = 0
         self.tRam = 200
-        self.coresLibres = simpy.Container(
-            self.env, capacity=numCores, init=numCores)
+        self.coresLibres = simpy.Resource(env, capacity=numCores)
         self.cores = [Core(id, L1, L2) for id in range(numCores)]
         self.env.process(self.run())
 
@@ -129,7 +132,9 @@ class Computador(object):
     def procesos(self, proceso: Proceso):
         Debug.log(self.env, f"Proceso {proceso.idProceso}: llega")
         itEspera = self.env.now
-        yield self.coresLibres.get(1)
+
+        request = self.coresLibres.request()
+        yield request
 
         core = self.asignar_core()
         Debug.log(self.env, f"Proceso {proceso.idProceso}: Asignado al core {
@@ -150,7 +155,7 @@ class Computador(object):
         core.tCore.append(ftCore - itCore)
 
         self.liberar_core(core)
-        yield self.coresLibres.put(1)
+        self.coresLibres.release(request)
         Debug.log(self.env, f"Proceso {
                   proceso.idProceso} liberó el core {core.idCore}")
 
@@ -170,7 +175,7 @@ class Computador(object):
             proceso = Proceso(idProceso=i, num_datos=num_datos)
             self.env.process(self.procesos(proceso=proceso))
 
-     # Método para leer datos del core
+    # Método para leer datos del core
     def leer_dato(self, core, dato):
         if dato in core.datosL1:
             core.cL1 += 1
@@ -204,6 +209,40 @@ class Computador(object):
     def liberar_core(self, core):
         core.ocupado = False
 
+# Clase para formatear la salida
+
+
+class FormateadorSalida(object):
+    def __init__(self, computador, tsimulacion):
+        self.computador = computador
+        self.tsimulacion = tsimulacion
+
+    def imprimir_resultados(self):
+        throughput = self.computador.pCompletados / self.tsimulacion
+        print(f"\n{'='*30}\nResultados de la Simulación\n{'='*30}\n")
+        print(f"Throughput: {throughput:.2f} procesos/segundo")
+        print(f"Tiempo de espera promedio de cada tarea: {
+              np.mean(tespera):.2f} segundos")
+        print(f"Tiempo de servicio promedio de cada tarea: {
+              np.mean(tservicio):.2f} segundos")
+
+        print(f"\n{'-'*30}\nDetalles por Core\n{'-'*30}\n")
+        for i, core in enumerate(self.computador.cores):
+            if core.tCore:
+                print(f"Core {i}:")
+                print(f"  - Tiempo de uso: {core.tUtilizado:.2f} segundos")
+                print(
+                    f"  - Promedio tiempo de uso: {np.mean(core.tCore):.2f} segundos")
+                print(f"  - Procesos resueltos: {core.procesos_resueltos}")
+                print(f"  - Accesos a L1: {core.cL1}")
+                print(f"  - Accesos a L2: {core.cL2}")
+                print(f"  - Accesos a RAM: {core.cRam}\n")
+            else:
+                print(f"Core {i}: No se utilizó\n")
+
+        print(f"{'='*30}\nTiempo de finalización promedio de cada tarea: {
+              np.mean(tfinalizacion):.2f} segundos\n{'='*30}\n")
+
 # Función principal del script
 
 
@@ -221,19 +260,8 @@ def main():
     env.run()
 
     tsimulacion = env.now
-    throughput = computador.pCompletados / tsimulacion
-
-    print(f"Throughput: {throughput} procesos/segundo")
-    print(f"Tiempo de espera promedio de cada tarea: {np.mean(tespera)}")
-    print(f"Tiempo de servicio promedio de cada tarea: {np.mean(tservicio)}")
-
-    for i in range(numCores):
-        core = computador.cores[i]
-        print(f"Core {i}: Tiempo de uso: {core.tUtilizado}, Promedio tiempo de uso: {np.mean(core.tCore)} Procesos resueltos: {
-              core.procesos_resueltos}, Accesos a L1: {core.cL1}, Accesos a L2: {core.cL2}, Accesos a RAM: {core.cRam}")
-
-    print(f"Tiempo de finalización promedio de cada tarea: {
-          np.mean(tfinalizacion)}")
+    formateador = FormateadorSalida(computador, tsimulacion)
+    formateador.imprimir_resultados()
 
 
 if __name__ == "__main__":
